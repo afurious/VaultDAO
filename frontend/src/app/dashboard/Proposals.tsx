@@ -1,201 +1,227 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { ArrowUpRight, Clock, SearchX } from 'lucide-react';
 import type { NewProposalFormData } from '../../components/modals/NewProposalModal';
 import NewProposalModal from '../../components/modals/NewProposalModal';
 import ProposalDetailModal from '../../components/modals/ProposalDetailModal';
 import ConfirmationModal from '../../components/modals/ConfirmationModal';
-import ProposalTemplates from '../../components/proposals/ProposalTemplates';
 import ProposalFilters, { type FilterState } from '../../components/proposals/ProposalFilters';
-import type { ProposalTemplate } from '../../utils/templates';
+import { useToast } from '../../hooks/useToast';
+import { useVaultContract } from '../../hooks/useVaultContract';
 
-interface Proposal {
-    id: string;
-    title: string;
-    description: string;
-    status: string;
-    creator: string;
-    recipient: string;
-    createdAt: string;
-    approvals: number;
-    amount?: string;
+const CopyButton = ({ text }: { text: string }) => (
+  <button 
+    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(text); }}
+    className="p-1 hover:bg-gray-700 rounded text-gray-400"
+  >
+    <Clock size={14} />
+  </button>
+);
+
+const StatusBadge = ({ status }: { status: string }) => {
+  const colors: Record<string, string> = {
+    Pending: 'bg-yellow-500/10 text-yellow-500',
+    Approved: 'bg-green-500/10 text-green-500',
+    Rejected: 'bg-red-500/10 text-red-500',
+    Executed: 'bg-blue-500/10 text-blue-500',
+  };
+  return (
+    <span className={`px-3 py-1 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500/10 text-gray-500'}`}>
+      {status}
+    </span>
+  );
+};
+
+export interface Proposal {
+  id: string;
+  proposer: string;
+  recipient: string;
+  amount: string;
+  token: string;
+  memo: string;
+  status: string;
+  approvals: number;
+  threshold: number;
+  createdAt: string;
 }
 
 const Proposals: React.FC = () => {
-    const [proposals, setProposals] = useState<Proposal[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [showNewProposalModal, setShowNewProposalModal] = useState(false);
-    const [showTemplateSelector, setShowTemplateSelector] = useState(false);
-    const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
-    const [showRejectModal, setShowRejectModal] = useState(false);
-    const [rejectingId, setRejectingId] = useState<string | null>(null);
-    const [selectedTemplateName, setSelectedTemplateName] = useState<string | null>(null);
-    
-    const [activeFilters, setActiveFilters] = useState<FilterState>({
-        search: '',
-        statuses: [],
-        dateRange: { from: '', to: '' },
-        amountRange: { min: '', max: '' },
-        sortBy: 'newest'
-    });
+  const { notify } = useToast();
+  const { rejectProposal } = useVaultContract();
 
-    const [newProposalForm, setNewProposalForm] = useState<NewProposalFormData>({
-        recipient: '',
-        token: '',
-        amount: '',
-        memo: '',
-    });
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showNewProposalModal, setShowNewProposalModal] = useState(false);
+  const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
 
-    useEffect(() => {
-        const fetchProposals = async () => {
-            setLoading(true);
-            try {
-                const mockData: Proposal[] = [
-                    { id: '1', title: 'Liquidity Pool Expansion', description: 'Adding 100 ETH to LP', status: 'Pending', creator: '0x123', recipient: '0xabc', createdAt: '2026-02-21', approvals: 1, amount: "100" },
-                ];
-                setProposals(mockData);
-            } catch (error) { console.error(error); } finally { setLoading(false); }
-        };
-        fetchProposals();
-    }, []);
+  const [activeFilters, setActiveFilters] = useState<FilterState>({
+    search: '',
+    statuses: [],
+    dateRange: { from: '', to: '' },
+    amountRange: { min: '', max: '' },
+    sortBy: 'newest'
+  });
 
-    const handleFormChange = (field: keyof NewProposalFormData, value: string) => {
-        setNewProposalForm(prev => ({ ...prev, [field]: value }));
-    };
+  const [newProposalForm, setNewProposalForm] = useState<NewProposalFormData>({
+    recipient: '',
+    token: 'NATIVE',
+    amount: '',
+    memo: '',
+  });
 
-    const applyTemplate = (template: ProposalTemplate) => {
-        setNewProposalForm({
-            recipient: template.recipient,
-            token: template.token || "NATIVE",
-            amount: template.amount,
-            memo: template.memo
-        });
-        setSelectedTemplateName(template.name);
-        setShowTemplateSelector(false);
-    };
-
-    const handleCreateProposal = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-        // API logic...
+  useEffect(() => {
+    const fetchProposals = async () => {
+      setLoading(true);
+      try {
+        const mockData: Proposal[] = [
+          {
+            id: '1',
+            proposer: '0x123...456',
+            recipient: '0xabc...def',
+            amount: '100',
+            token: 'ETH',
+            memo: 'Liquidity Pool Expansion',
+            status: 'Pending',
+            approvals: 1,
+            threshold: 2,
+            createdAt: new Date().toISOString()
+          }
+        ];
+        setProposals(mockData);
+      } catch (error) {
+        console.error(error);
+      } finally {
         setLoading(false);
-        setShowNewProposalModal(false);
+      }
     };
+    fetchProposals();
+  }, []);
 
-    // Fix for setRejectingId usage
-    const handleOpenReject = (e: React.MouseEvent, id: string) => {
-        e.stopPropagation(); // Prevent opening the detail modal
-        setRejectingId(id);
-        setShowRejectModal(true);
-    };
+  const filteredProposals = useMemo(() => {
+    let filtered = proposals.filter((p) => {
+      const searchLower = activeFilters.search.toLowerCase();
+      const matchesSearch =
+        !activeFilters.search ||
+        p.proposer.toLowerCase().includes(searchLower) ||
+        p.recipient.toLowerCase().includes(searchLower) ||
+        p.memo.toLowerCase().includes(searchLower);
 
-    const handleRejectConfirm = async (reason?: string) => {
-        if (!rejectingId) return;
-        const finalReason = reason || "No reason provided";
-        console.log(`Rejecting ${rejectingId} for: ${finalReason}`);
-        
-        // Mock UI update
-        setProposals(prev => prev.map(p => p.id === rejectingId ? { ...p, status: 'Rejected' } : p));
-        
-        setShowRejectModal(false);
-        setRejectingId(null);
-    };
+      const matchesStatus =
+        activeFilters.statuses.length === 0 || activeFilters.statuses.includes(p.status);
 
-    const filteredProposals = useMemo(() => {
-        return proposals.filter(p => {
-            const matchesSearch = p.title.toLowerCase().includes(activeFilters.search.toLowerCase()) || 
-                                 p.recipient.toLowerCase().includes(activeFilters.search.toLowerCase());
-            const matchesStatus = activeFilters.statuses.length === 0 || activeFilters.statuses.includes(p.status);
-            return matchesSearch && matchesStatus;
-        });
-    }, [proposals, activeFilters]);
+      const amount = parseFloat(p.amount.replace(/,/g, ''));
+      const min = activeFilters.amountRange.min ? parseFloat(activeFilters.amountRange.min) : -Infinity;
+      const max = activeFilters.amountRange.max ? parseFloat(activeFilters.amountRange.max) : Infinity;
+      const matchesAmount = amount >= min && amount <= max;
 
-    return (
-        <div className="min-h-screen bg-gray-900 p-6 text-white">
-            <div className="max-w-7xl mx-auto">
-                <div className="flex justify-between items-center mb-8">
-                    <h1 className="text-3xl font-bold">Proposals</h1>
-                    <button 
-                        onClick={() => setShowNewProposalModal(true)}
-                        className="bg-purple-600 hover:bg-purple-700 px-6 py-2 rounded-lg transition"
-                    >
-                        New Proposal
-                    </button>
-                </div>
+      const proposalDate = new Date(p.createdAt).getTime();
+      const from = activeFilters.dateRange.from ? new Date(activeFilters.dateRange.from).getTime() : -Infinity;
+      const to = activeFilters.dateRange.to ? new Date(activeFilters.dateRange.to).setHours(23, 59, 59, 999) : Infinity;
+      const matchesDate = proposalDate >= from && proposalDate <= to;
 
-                <ProposalFilters 
-                    proposalCount={filteredProposals.length} 
-                    onFilterChange={setActiveFilters} 
-                />
+      return matchesSearch && matchesStatus && matchesAmount && matchesDate;
+    });
 
-                <div className="mt-6 space-y-4">
-                    {filteredProposals.map(prop => (
-                        <div 
-                            key={prop.id} 
-                            onClick={() => setSelectedProposal(prop)}
-                            className="p-4 bg-gray-800 border border-gray-700 rounded-xl cursor-pointer hover:border-purple-500 transition flex justify-between items-center"
-                        >
-                            <div>
-                                <h3 className="text-lg font-semibold">{prop.title}</h3>
-                                <p className="text-sm text-gray-400">{prop.status}</p>
-                            </div>
-                            {prop.status === 'Pending' && (
-                                <button 
-                                    onClick={(e) => handleOpenReject(e, prop.id)}
-                                    className="text-red-400 hover:text-red-300 text-sm font-medium"
-                                >
-                                    Reject
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                </div>
+    return [...filtered].sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      const amtA = parseFloat(a.amount.replace(/,/g, ''));
+      const amtB = parseFloat(b.amount.replace(/,/g, ''));
 
-                {showTemplateSelector && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                        <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6">
-                            <div className="flex justify-between mb-6">
-                                <h2 className="text-2xl font-bold">Select Template</h2>
-                                <button onClick={() => setShowTemplateSelector(false)} className="text-gray-400 hover:text-white">
-                                    <X size={24} />
-                                </button>
-                            </div>
-                            <ProposalTemplates onUseTemplate={applyTemplate} />
-                        </div>
-                    </div>
-                )}
+      switch (activeFilters.sortBy) {
+        case 'oldest': return dateA - dateB;
+        case 'highest': return amtB - amtA;
+        case 'lowest': return amtA - amtB;
+        default: return dateB - dateA;
+      }
+    });
+  }, [proposals, activeFilters]);
 
-                <NewProposalModal
-                    isOpen={showNewProposalModal}
-                    loading={loading}
-                    selectedTemplateName={selectedTemplateName}
-                    formData={newProposalForm}
-                    onFieldChange={handleFormChange}
-                    onSubmit={handleCreateProposal}
-                    onOpenTemplateSelector={() => setShowTemplateSelector(true)}
-                    onSaveAsTemplate={() => {}}
-                    onClose={() => setShowNewProposalModal(false)}
-                />
+  const handleRejectConfirm = async () => {
+    if (!rejectingId) return;
+    try {
+      await rejectProposal(Number(rejectingId));
+      setProposals(prev => prev.map(p => p.id === rejectingId ? { ...p, status: 'Rejected' } : p));
+      notify('proposal_rejected', `Proposal #${rejectingId} rejected`, 'success');
+    } catch (err: any) {
+      notify('proposal_rejected', err.message || 'Failed to reject', 'error');
+    } finally {
+      setShowRejectModal(false);
+      setRejectingId(null);
+    }
+  };
 
-                <ProposalDetailModal
-                    isOpen={!!selectedProposal}
-                    onClose={() => setSelectedProposal(null)}
-                    proposal={selectedProposal}
-                />
-
-                <ConfirmationModal
-                    isOpen={showRejectModal}
-                    title="Reject Proposal"
-                    message="Are you sure you want to reject this?"
-                    onConfirm={handleRejectConfirm}
-                    onCancel={() => setShowRejectModal(false)}
-                    showReasonInput={true}
-                    isDestructive={true}
-                />
-            </div>
+  return (
+    <div className="min-h-screen bg-gray-900 p-6 text-white">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold">Proposals</h1>
+          <button onClick={() => setShowNewProposalModal(true)} className="bg-purple-600 hover:bg-purple-700 px-6 py-2 rounded-lg transition">
+            New Proposal
+          </button>
         </div>
-    );
+
+        <ProposalFilters proposalCount={filteredProposals.length} onFilterChange={setActiveFilters} />
+
+        <div className="mt-6 grid grid-cols-1 gap-4">
+          {filteredProposals.length > 0 ? (
+            filteredProposals.map((prop) => (
+              <div key={prop.id} onClick={() => setSelectedProposal(prop)} className="bg-gray-800/50 p-5 rounded-2xl border border-gray-700 hover:border-purple-500/50 cursor-pointer transition-all hover:scale-[1.01] group">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="p-3 bg-gray-900 rounded-xl text-purple-400 group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                      <ArrowUpRight size={20} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-white font-bold">Proposal #{prop.id}</h4>
+                        <CopyButton text={prop.recipient} />
+                      </div>
+                      <p className="text-sm text-gray-400 truncate max-w-[200px] sm:max-w-md">{prop.memo}</p>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                        <span className="flex items-center gap-1"><Clock size={12} /> {new Date(prop.createdAt).toLocaleDateString()}</span>
+                        <span>• {prop.amount} {prop.token}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                    <StatusBadge status={prop.status} />
+                    {prop.status === 'Pending' && (
+                      <button onClick={(e) => { e.stopPropagation(); setRejectingId(prop.id); setShowRejectModal(true); }} className="bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white px-3 py-1 rounded-lg text-xs transition-colors">
+                        Reject
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 px-4 bg-gray-800/20 rounded-3xl border border-dashed border-gray-700">
+              <SearchX size={48} className="text-gray-600 mb-4" />
+              <p className="text-gray-400 text-lg font-medium">No proposals match your filters</p>
+            </div>
+          )}
+        </div>
+
+        <NewProposalModal 
+          isOpen={showNewProposalModal} 
+          loading={loading} 
+          selectedTemplateName={null} // Added required prop
+          formData={newProposalForm} 
+          onFieldChange={(f, v) => setNewProposalForm(prev => ({ ...prev, [f]: v }))} 
+          onSubmit={(e) => { e.preventDefault(); setShowNewProposalModal(false); }} 
+          onOpenTemplateSelector={() => {}} 
+          onSaveAsTemplate={() => {}} 
+          onClose={() => setShowNewProposalModal(false)} 
+        />
+        <ProposalDetailModal isOpen={!!selectedProposal} onClose={() => setSelectedProposal(null)} proposal={selectedProposal} />
+        <ConfirmationModal isOpen={showRejectModal} title="Reject Proposal" message="Are you sure you want to reject this?" onConfirm={handleRejectConfirm} onCancel={() => setShowRejectModal(false)} showReasonInput={true} isDestructive={true} />
+      </div>
+    </div>
+  );
 };
 
 export default Proposals;
