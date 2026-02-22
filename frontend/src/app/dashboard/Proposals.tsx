@@ -239,9 +239,9 @@ const Proposals: React.FC = () => {
     try {
       await rejectProposal(Number(rejectingId));
       setProposals(prev => prev.map(p => p.id === rejectingId ? { ...p, status: 'Rejected' } : p));
-      notify('proposal_rejected', `Proposal #${rejectingId} rejected successfully`, 'success');
+      notify('proposal_rejected', `Proposal #${rejectingId} rejected`, 'success');
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to reject proposal';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to reject';
       notify('proposal_rejected', errorMessage, 'error');
     } finally {
       setShowRejectModal(false);
