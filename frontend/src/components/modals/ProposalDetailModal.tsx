@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { X, Copy, CheckCircle2, Clock, PlayCircle, Ban, UserCheck, MessageSquare } from 'lucide-react';
 import ProposalComments from '../ProposalComments';
+import { X, Copy, CheckCircle2, Clock, PlayCircle, Ban, UserCheck } from 'lucide-react';
+import SignatureStatus, { type Signer } from '../SignatureStatus';
+import SignatureFlow, { type FlowStep } from '../SignatureFlow';
+import QRSignature from '../QRSignature';
+import { useVaultContract } from '../../hooks/useVaultContract';
 
 // Define the shape of a Proposal to fix the 'any' error
 export interface Proposal {
@@ -22,6 +27,16 @@ interface ProposalDetailModalProps {
 
 const ProposalDetailModal: React.FC<ProposalDetailModalProps> = ({ isOpen, onClose, proposal }) => {
     const [activeTab, setActiveTab] = useState<'details' | 'comments'>('details');
+    const { getProposalSignatures, remindSigner, exportSignatures } = useVaultContract();
+    const [signers, setSigners] = useState<Signer[]>([]);
+    const [showQR, setShowQR] = useState(false);
+    const [mockXDR] = useState('AAAAAgAAAAC...'); // Mock XDR for demo
+    
+    useEffect(() => {
+        if (isOpen && proposal) {
+            getProposalSignatures(parseInt(proposal.id)).then(setSigners);
+        }
+    }, [isOpen, proposal, getProposalSignatures]);
     
     // Prevent background scrolling
     useEffect(() => {
@@ -43,6 +58,26 @@ const ProposalDetailModal: React.FC<ProposalDetailModalProps> = ({ isOpen, onClo
         if (!text) return;
         navigator.clipboard.writeText(text);
     };
+
+    const handleRemind = async (address: string) => {
+        await remindSigner(address);
+    };
+
+    const handleExport = () => {
+        exportSignatures(signers);
+    };
+
+    const handleRefreshSignatures = async () => {
+        const updated = await getProposalSignatures(parseInt(proposal.id));
+        setSigners(updated);
+    };
+
+    const flowSteps: FlowStep[] = [
+        { label: 'Proposal Created', status: 'completed', timestamp: '2026-02-19T14:20:00Z' },
+        { label: `Collecting Signatures (${signers.filter(s => s.signed).length}/${proposal.threshold || 3})`, status: signers.filter(s => s.signed).length >= (proposal.threshold || 3) ? 'completed' : 'active' },
+        { label: 'Timelock Period', status: proposal.status === 'Timelocked' ? 'active' : proposal.status === 'Executed' ? 'completed' : 'pending' },
+        { label: 'Execution', status: proposal.status === 'Executed' ? 'completed' : 'pending' },
+    ];
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm transition-opacity">
@@ -92,11 +127,57 @@ const ProposalDetailModal: React.FC<ProposalDetailModalProps> = ({ isOpen, onClo
                 </div>
 
                 {/* 2. Scrollable Body */}
-                <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-8 custom-scrollbar">
-                    {activeTab === 'details' ? (
-                        <>
-                            {/* Visual Timeline Section */}
-                            <div>
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-6 custom-scrollbar">
+                    
+                    {/* Signature Flow */}
+                    <div>
+                        <h3 className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] mb-4">Signing Progress</h3>
+                        <SignatureFlow steps={flowSteps} />
+                    </div>
+
+                    {/* Signature Status */}
+                    <div>
+                        <h3 className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] mb-4">Signatures</h3>
+                        <SignatureStatus 
+                            signers={signers}
+                            threshold={proposal.threshold || 3}
+                            onRemind={handleRemind}
+                            onExport={handleExport}
+                        />
+                    </div>
+
+                    {/* QR Code Section - Mobile Optimized */}
+                    <div className="lg:hidden">
+                        <h3 className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] mb-4">Mobile Signing</h3>
+                        <button
+                            onClick={() => setShowQR(!showQR)}
+                            className="w-full bg-accent/10 border border-accent/20 text-accent py-3 rounded-xl font-bold text-sm hover:bg-accent/20 transition-colors"
+                        >
+                            {showQR ? 'Hide QR Code' : 'Show QR Code'}
+                        </button>
+                        {showQR && (
+                            <div className="mt-4">
+                                <QRSignature 
+                                    transactionXDR={mockXDR}
+                                    onRefresh={handleRefreshSignatures}
+                                    signed={signers.filter(s => s.signed).length >= (proposal.threshold || 3)}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Desktop QR Code */}
+                    <div className="hidden lg:block">
+                        <h3 className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] mb-4">Mobile Signing</h3>
+                        <QRSignature 
+                            transactionXDR={mockXDR}
+                            onRefresh={handleRefreshSignatures}
+                            signed={signers.filter(s => s.signed).length >= (proposal.threshold || 3)}
+                        />
+                    </div>
+                    
+                    {/* Visual Timeline Section */}
+                    <div>
                         <h3 className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] mb-8">Proposal Lifecycle</h3>
                         <div className="flex justify-between items-start relative px-2">
                             {[
@@ -170,12 +251,12 @@ const ProposalDetailModal: React.FC<ProposalDetailModalProps> = ({ isOpen, onClo
                 </div>
 
                 {/* 3. Footer */}
-                <div className="p-6 border-t border-gray-800 bg-secondary/80 shrink-0 backdrop-blur-md">
-                    <div className="flex gap-3">
-                        <button className="flex-1 bg-accent hover:bg-accent/90 text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.98] shadow-lg shadow-accent/10">
+                <div className="p-4 sm:p-6 border-t border-gray-800 bg-secondary/80 shrink-0 backdrop-blur-md">
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <button className="flex-1 bg-accent hover:bg-accent/90 text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.98] shadow-lg shadow-accent/10 text-sm">
                             <CheckCircle2 size={18} /> Approve Proposal
                         </button>
-                        <button className="flex-1 bg-secondary border border-red-500/20 text-red-500 hover:bg-red-500/10 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98]">
+                        <button className="flex-1 bg-secondary border border-red-500/20 text-red-500 hover:bg-red-500/10 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] text-sm">
                             <Ban size={18} /> Reject
                         </button>
                     </div>
