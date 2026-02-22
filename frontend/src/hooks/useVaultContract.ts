@@ -361,292 +361,48 @@ export const useVaultContract = () => {
         }
     };
 
-    // ============ Recurring Payment Functions ============
-
-    /**
-     * Get all recurring payments for the vault
-     */
-    const getRecurringPayments = useCallback(async (): Promise<RecurringPayment[]> => {
+    const getProposalSignatures = useCallback(async (_proposalId: number) => {
         try {
-            // Simulate contract call to get recurring payments
-            // In production, this would call the actual contract
-            await server.getAccount(CONTRACT_ID).catch(() => null);
-            
-            // Mock data for demonstration - in production this would parse contract storage
-            const mockPayments: RecurringPayment[] = [
-                {
-                    id: '1',
-                    recipient: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX1',
-                    token: 'CDXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-                    amount: '1000000000', // 100 XLM (in stroops)
-                    memo: 'Monthly salary',
-                    interval: 2592000, // 30 days in seconds
-                    nextPaymentTime: Date.now() + 86400000, // 1 day from now
-                    totalPayments: 12,
-                    status: 'active',
-                    createdAt: Date.now() - 31536000000, // 1 year ago
-                    creator: 'GYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY',
-                },
-                {
-                    id: '2',
-                    recipient: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX2',
-                    token: 'CDXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-                    amount: '500000000', // 50 XLM
-                    memo: 'Weekly subscription',
-                    interval: 604800, // 7 days in seconds
-                    nextPaymentTime: Date.now() - 3600000, // 1 hour ago (due)
-                    totalPayments: 52,
-                    status: 'active',
-                    createdAt: Date.now() - 15768000000, // 6 months ago
-                    creator: 'GYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY',
-                },
-                {
-                    id: '3',
-                    recipient: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX3',
-                    token: 'CDXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-                    amount: '250000000', // 25 XLM
-                    memo: 'Paused service',
-                    interval: 86400, // 1 day
-                    nextPaymentTime: Date.now() + 86400000,
-                    totalPayments: 5,
-                    status: 'paused',
-                    createdAt: Date.now() - 2592000000, // 30 days ago
-                    creator: 'GYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY',
-                },
+            // Mock data - replace with actual contract call
+            return [
+                { address: 'GB2R...4M1P', signed: true, timestamp: new Date().toISOString(), verified: true },
+                { address: 'GC3X...8K2L', signed: true, timestamp: new Date().toISOString(), verified: true },
+                { address: 'GD5Y...9M3N', signed: false },
+                { address: 'GE7Z...1P4Q', signed: false },
+                { address: 'GF9A...2R5S', signed: false },
             ];
-
-            return mockPayments;
         } catch (e) {
-            console.error('Failed to fetch recurring payments:', e);
+            console.error('Failed to fetch signatures:', e);
             return [];
         }
     }, []);
 
-    /**
-     * Get payment history for a specific recurring payment
-     */
-    const getRecurringPaymentHistory = useCallback(async (paymentId: string): Promise<RecurringPaymentHistory[]> => {
-        try {
-            // Mock data for demonstration
-            const mockHistory: RecurringPaymentHistory[] = [
-                {
-                    id: `${paymentId}-1`,
-                    paymentId,
-                    executedAt: Date.now() - 2592000000, // 30 days ago
-                    transactionHash: 'abc123def456789012345678901234567890123456789012345678901234',
-                    amount: '1000000000',
-                    success: true,
-                },
-                {
-                    id: `${paymentId}-2`,
-                    paymentId,
-                    executedAt: Date.now() - 5184000000, // 60 days ago
-                    transactionHash: 'def456abc789012345678901234567890123456789012345678901234567',
-                    amount: '1000000000',
-                    success: true,
-                },
-            ];
-
-            return mockHistory;
-        } catch (e) {
-            console.error('Failed to fetch payment history:', e);
-            return [];
-        }
+    const remindSigner = useCallback(async (address: string) => {
+        // Mock notification - integrate with notification system
+        console.log(`Reminder sent to ${address}`);
+        return true;
     }, []);
 
-    /**
-     * Schedule a new recurring payment
-     */
-    const schedulePayment = useCallback(async (params: CreateRecurringPaymentParams): Promise<string> => {
-        if (!isConnected || !address) throw new Error("Wallet not connected");
-        setLoading(true);
-        try {
-            const account = await server.getAccount(address);
-            const tx = new TransactionBuilder(account, { fee: "100" })
-                .setNetworkPassphrase(NETWORK_PASSPHRASE)
-                .setTimeout(30)
-                .addOperation(Operation.invokeHostFunction({
-                    func: xdr.HostFunction.hostFunctionTypeInvokeContract(
-                        new xdr.InvokeContractArgs({
-                            contractAddress: Address.fromString(CONTRACT_ID).toScAddress(),
-                            functionName: "schedule_payment",
-                            args: [
-                                new Address(address).toScVal(),
-                                new Address(params.recipient).toScVal(),
-                                new Address(params.token).toScVal(),
-                                nativeToScVal(BigInt(params.amount)),
-                                xdr.ScVal.scvSymbol(params.memo),
-                                nativeToScVal(BigInt(params.interval), { type: "u64" }),
-                            ],
-                        })
-                    ),
-                    auth: [],
-                }))
-                .build();
-
-            const simulation = await server.simulateTransaction(tx);
-            if (SorobanRpc.Api.isSimulationError(simulation)) {
-                throw new Error(`Simulation Failed: ${simulation.error}`);
-            }
-            const preparedTx = SorobanRpc.assembleTransaction(tx, simulation).build();
-            const signedXdr = await signTransaction(preparedTx.toXDR(), { network: "TESTNET" });
-            const response = await server.sendTransaction(
-                TransactionBuilder.fromXDR(signedXdr as string, NETWORK_PASSPHRASE)
-            );
-
-            return response.hash;
-        } catch (e: unknown) {
-            throw parseError(e);
-        } finally {
-            setLoading(false);
-        }
-    }, [address, isConnected]);
-
-    /**
-     * Execute a due recurring payment manually
-     */
-    const executeRecurringPayment = useCallback(async (paymentId: string): Promise<string> => {
-        if (!isConnected || !address) throw new Error("Wallet not connected");
-        setLoading(true);
-        try {
-            const account = await server.getAccount(address);
-            const tx = new TransactionBuilder(account, { fee: "100" })
-                .setNetworkPassphrase(NETWORK_PASSPHRASE)
-                .setTimeout(30)
-                .addOperation(Operation.invokeHostFunction({
-                    func: xdr.HostFunction.hostFunctionTypeInvokeContract(
-                        new xdr.InvokeContractArgs({
-                            contractAddress: Address.fromString(CONTRACT_ID).toScAddress(),
-                            functionName: "execute_recurring_payment",
-                            args: [
-                                new Address(address).toScVal(),
-                                nativeToScVal(BigInt(paymentId), { type: "u64" }),
-                            ],
-                        })
-                    ),
-                    auth: [],
-                }))
-                .build();
-
-            const simulation = await server.simulateTransaction(tx);
-            if (SorobanRpc.Api.isSimulationError(simulation)) {
-                throw new Error(`Simulation Failed: ${simulation.error}`);
-            }
-            const preparedTx = SorobanRpc.assembleTransaction(tx, simulation).build();
-            const signedXdr = await signTransaction(preparedTx.toXDR(), { network: "TESTNET" });
-            const response = await server.sendTransaction(
-                TransactionBuilder.fromXDR(signedXdr as string, NETWORK_PASSPHRASE)
-            );
-
-            return response.hash;
-        } catch (e: unknown) {
-            throw parseError(e);
-        } finally {
-            setLoading(false);
-        }
-    }, [address, isConnected]);
-
-    /**
-     * Cancel/Deactivate a recurring payment
-     */
-    const cancelRecurringPayment = useCallback(async (paymentId: string): Promise<string> => {
-        if (!isConnected || !address) throw new Error("Wallet not connected");
-        setLoading(true);
-        try {
-            const account = await server.getAccount(address);
-            const tx = new TransactionBuilder(account, { fee: "100" })
-                .setNetworkPassphrase(NETWORK_PASSPHRASE)
-                .setTimeout(30)
-                .addOperation(Operation.invokeHostFunction({
-                    func: xdr.HostFunction.hostFunctionTypeInvokeContract(
-                        new xdr.InvokeContractArgs({
-                            contractAddress: Address.fromString(CONTRACT_ID).toScAddress(),
-                            functionName: "cancel_recurring_payment",
-                            args: [
-                                new Address(address).toScVal(),
-                                nativeToScVal(BigInt(paymentId), { type: "u64" }),
-                            ],
-                        })
-                    ),
-                    auth: [],
-                }))
-                .build();
-
-            const simulation = await server.simulateTransaction(tx);
-            if (SorobanRpc.Api.isSimulationError(simulation)) {
-                throw new Error(`Simulation Failed: ${simulation.error}`);
-            }
-            const preparedTx = SorobanRpc.assembleTransaction(tx, simulation).build();
-            const signedXdr = await signTransaction(preparedTx.toXDR(), { network: "TESTNET" });
-            const response = await server.sendTransaction(
-                TransactionBuilder.fromXDR(signedXdr as string, NETWORK_PASSPHRASE)
-            );
-
-            return response.hash;
-        } catch (e: unknown) {
-            throw parseError(e);
-        } finally {
-            setLoading(false);
-        }
-    }, [address, isConnected]);
-
-    /**
-     * Pause a recurring payment
-     */
-    const pauseRecurringPayment = useCallback(async (paymentId: string): Promise<string> => {
-        if (!isConnected || !address) throw new Error("Wallet not connected");
-        setLoading(true);
-        try {
-            const account = await server.getAccount(address);
-            const tx = new TransactionBuilder(account, { fee: "100" })
-                .setNetworkPassphrase(NETWORK_PASSPHRASE)
-                .setTimeout(30)
-                .addOperation(Operation.invokeHostFunction({
-                    func: xdr.HostFunction.hostFunctionTypeInvokeContract(
-                        new xdr.InvokeContractArgs({
-                            contractAddress: Address.fromString(CONTRACT_ID).toScAddress(),
-                            functionName: "pause_recurring_payment",
-                            args: [
-                                new Address(address).toScVal(),
-                                nativeToScVal(BigInt(paymentId), { type: "u64" }),
-                            ],
-                        })
-                    ),
-                    auth: [],
-                }))
-                .build();
-
-            const simulation = await server.simulateTransaction(tx);
-            if (SorobanRpc.Api.isSimulationError(simulation)) {
-                throw new Error(`Simulation Failed: ${simulation.error}`);
-            }
-            const preparedTx = SorobanRpc.assembleTransaction(tx, simulation).build();
-            const signedXdr = await signTransaction(preparedTx.toXDR(), { network: "TESTNET" });
-            const response = await server.sendTransaction(
-                TransactionBuilder.fromXDR(signedXdr as string, NETWORK_PASSPHRASE)
-            );
-
-            return response.hash;
-        } catch (e: unknown) {
-            throw parseError(e);
-        } finally {
-            setLoading(false);
-        }
-    }, [address, isConnected]);
+    const exportSignatures = useCallback((signatures: unknown[]) => {
+        const data = { signatures, exportedAt: new Date().toISOString() };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `proposal-signatures.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }, []);
 
     return { 
         proposeTransfer, 
         rejectProposal, 
         executeProposal, 
         getDashboardStats, 
-        getVaultEvents,
-        // Recurring payment functions
-        getRecurringPayments,
-        getRecurringPaymentHistory,
-        schedulePayment,
-        executeRecurringPayment,
-        cancelRecurringPayment,
-        pauseRecurringPayment,
+        getVaultEvents, 
+        getProposalSignatures,
+        remindSigner,
+        exportSignatures,
         loading 
     };
 };
