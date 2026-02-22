@@ -7,7 +7,6 @@ interface ProposalActionWithSimulationProps {
     proposalId: string;
     onSimulate: () => Promise<SimulationResult>;
     onConfirm: () => void;
-    onCancel: () => void;
     loading?: boolean;
     disabled?: boolean;
 }
@@ -17,7 +16,6 @@ export default function ProposalActionWithSimulation({
     proposalId,
     onSimulate,
     onConfirm,
-    onCancel,
     loading = false,
     disabled = false,
 }: ProposalActionWithSimulationProps) {

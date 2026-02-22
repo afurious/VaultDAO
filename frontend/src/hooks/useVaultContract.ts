@@ -20,7 +20,6 @@ import {
     parseSimulationError,
     extractStateChanges,
     formatFeeBreakdown,
-    stroopsToXLM,
 } from '../utils/simulation';
 
 const CONTRACT_ID = "CDXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
