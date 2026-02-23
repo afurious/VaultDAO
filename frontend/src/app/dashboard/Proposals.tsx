@@ -10,6 +10,8 @@ import ProposalFilters, { type FilterState } from '../../components/proposals/Pr
 import { useToast } from '../../hooks/useToast';
 import { useVaultContract } from '../../hooks/useVaultContract';
 import { useWallet } from '../../context/WalletContextProps';
+import { reportError } from '../../components/ErrorReporting';
+import { parseError } from '../../utils/errorParser';
 import type { TokenInfo } from '../../constants/tokens';
 import { DEFAULT_TOKENS } from '../../constants/tokens';
 
@@ -229,6 +231,8 @@ const Proposals: React.FC = () => {
       setProposals(prev => prev.map(p => p.id === rejectingId ? { ...p, status: 'Rejected' } : p));
       notify('proposal_rejected', `Proposal #${rejectingId} rejected`, 'success');
     } catch (err: unknown) {
+      const vaultErr = parseError(err);
+      reportError({ ...vaultErr, context: 'Proposals.handleReject' });
       const errorMessage = err instanceof Error ? err.message : 'Failed to reject';
       notify('proposal_rejected', errorMessage, 'error');
     } finally {
@@ -262,6 +266,8 @@ const Proposals: React.FC = () => {
       }));
       notify('proposal_approved', `Proposal #${proposalId} approved successfully`, 'success');
     } catch (err: unknown) {
+      const vaultErr = parseError(err);
+      reportError({ ...vaultErr, context: 'Proposals.handleApprove' });
       const errorMessage = err instanceof Error ? err.message : 'Failed to approve proposal';
       notify('proposal_rejected', errorMessage, 'error');
     } finally {

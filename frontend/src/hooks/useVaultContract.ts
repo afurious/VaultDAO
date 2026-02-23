@@ -11,6 +11,7 @@ import {
 import { signTransaction } from '@stellar/freighter-api';
 import { useWallet } from '../context/WalletContextProps';
 import { parseError } from '../utils/errorParser';
+import { withRetry } from '../components/RetryMechanism';
 import type { VaultActivity, GetVaultEventsResult, VaultEventType } from '../types/activity';
 import type { SimulationResult } from '../utils/simulation';
 import {
@@ -154,18 +155,19 @@ export const useVaultContract = () => {
 
     const getDashboardStats = useCallback(async () => {
         try {
-            const accountInfo = await server.getAccount(CONTRACT_ID) as unknown as { balances: StellarBalance[] };
-            const nativeBalance = accountInfo.balances.find((b: StellarBalance) => b.asset_type === 'native');
-            const balance = nativeBalance ? parseFloat(nativeBalance.balance).toLocaleString() : "0";
-
-            return {
-                totalBalance: balance,
-                totalProposals: 24,
-                pendingApprovals: 3,
-                readyToExecute: 1,
-                activeSigners: 5,
-                threshold: "3/5"
-            };
+            return await withRetry(async () => {
+                const accountInfo = await server.getAccount(CONTRACT_ID) as unknown as { balances: StellarBalance[] };
+                const nativeBalance = accountInfo.balances.find((b: StellarBalance) => b.asset_type === 'native');
+                const balance = nativeBalance ? parseFloat(nativeBalance.balance).toLocaleString() : "0";
+                return {
+                    totalBalance: balance,
+                    totalProposals: 24,
+                    pendingApprovals: 3,
+                    readyToExecute: 1,
+                    activeSigners: 5,
+                    threshold: "3/5"
+                };
+            }, { maxAttempts: 3, initialDelayMs: 1000 });
         } catch (e) {
             console.error("Failed to fetch dashboard stats:", e);
             return {

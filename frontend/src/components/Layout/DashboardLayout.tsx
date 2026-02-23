@@ -16,10 +16,12 @@ import {
   BarChart3,
   Files,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 // Fixed Import: Pointing to the actual hook location
-import { useWallet } from "../../hooks/useWallet"; 
+import { useWallet } from "../../hooks/useWallet";
 import CopyButton from '../CopyButton';
+import { LayoutErrorBoundary } from '../ErrorHandler';
 
 const DashboardLayout: React.FC = () => {
   const { isConnected, address, network, connect, disconnect } = useWallet();
@@ -38,6 +40,7 @@ const DashboardLayout: React.FC = () => {
     { label: 'Activity', path: '/dashboard/activity', icon: ActivityIcon },
     { label: 'Templates', path: '/dashboard/templates', icon: Files },
     { label: 'Analytics', path: '/dashboard/analytics', icon: BarChart3 },
+    { label: 'Error analytics', path: '/dashboard/errors', icon: AlertCircle },
     { label: 'Settings', path: '/dashboard/settings', icon: Settings },
   ];
 
@@ -132,7 +135,9 @@ const DashboardLayout: React.FC = () => {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
-          <Outlet />
+          <LayoutErrorBoundary>
+            <Outlet />
+          </LayoutErrorBoundary>
         </main>
       </div>
     </div>
