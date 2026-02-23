@@ -48,8 +48,6 @@ pub struct Config {
     pub velocity_limit: VelocityConfig,
     /// Threshold strategy configuration
     pub threshold_strategy: ThresholdStrategy,
-    /// DEX configuration for automated trading
-    pub dex_config: Option<DexConfig>,
 }
 
 /// Threshold strategy for dynamic approval requirements
@@ -202,8 +200,8 @@ pub struct Proposal {
     pub unlock_ledger: u64,
     /// Insurance amount staked by proposer (0 = no insurance). Held in vault.
     pub insurance_amount: i128,
-    /// Optional swap operation for DEX integration
-    pub swap_operation: Option<SwapProposal>,
+    /// Flag indicating if this is a swap proposal
+    pub is_swap: bool,
 }
 
 /// On-chain comment on a proposal

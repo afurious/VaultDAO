@@ -56,6 +56,10 @@ pub enum DataKey {
     InsuranceConfig,
     /// Per-user notification preferences -> NotificationPreferences
     NotificationPrefs(Address),
+    /// DEX configuration -> DexConfig
+    DexConfig,
+    /// Swap proposal by ID -> SwapProposal
+    SwapProposal(u64),
     /// Swap result by proposal ID -> SwapResult
     SwapResult(u64),
 }
@@ -538,7 +542,29 @@ pub fn set_notification_prefs(env: &Env, addr: &Address, prefs: &NotificationPre
 // DEX/AMM Integration (Issue: feature/amm-integration)
 // ============================================================================
 
-use crate::types::SwapResult;
+use crate::types::{DexConfig, SwapProposal, SwapResult};
+
+pub fn set_dex_config(env: &Env, config: &DexConfig) {
+    env.storage().instance().set(&DataKey::DexConfig, config);
+}
+
+pub fn get_dex_config(env: &Env) -> Option<DexConfig> {
+    env.storage().instance().get(&DataKey::DexConfig)
+}
+
+pub fn set_swap_proposal(env: &Env, proposal_id: u64, swap: &SwapProposal) {
+    let key = DataKey::SwapProposal(proposal_id);
+    env.storage().persistent().set(&key, swap);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, INSTANCE_TTL_THRESHOLD, PROPOSAL_TTL);
+}
+
+pub fn get_swap_proposal(env: &Env, proposal_id: u64) -> Option<SwapProposal> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SwapProposal(proposal_id))
+}
 
 pub fn set_swap_result(env: &Env, proposal_id: u64, result: &SwapResult) {
     let key = DataKey::SwapResult(proposal_id);

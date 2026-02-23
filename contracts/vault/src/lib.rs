@@ -18,9 +18,9 @@ pub use types::InitConfig;
 use errors::VaultError;
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
 use types::{
-    Comment, Condition, ConditionLogic, Config, DexConfig, InsuranceConfig, ListMode,
-    NotificationPreferences, Priority, Proposal, ProposalStatus, Reputation, Role, SwapProposal,
-    SwapResult, ThresholdStrategy,
+    Comment, Condition, ConditionLogic, Config, InsuranceConfig, ListMode,
+    NotificationPreferences, Priority, Proposal, ProposalStatus, Reputation, Role,
+    ThresholdStrategy,
 };
 
 /// The main contract structure for VaultDAO.
@@ -91,7 +91,6 @@ impl VaultDAO {
             timelock_delay: config.timelock_delay,
             velocity_limit: config.velocity_limit,
             threshold_strategy: config.threshold_strategy,
-            dex_config: None,
         };
 
         // Store state
@@ -241,7 +240,7 @@ impl VaultDAO {
             expires_at: current_ledger + PROPOSAL_EXPIRY_LEDGERS,
             unlock_ledger: 0,
             insurance_amount: actual_insurance,
-            swap_operation: None,
+            is_swap: false,
         };
 
         storage::set_proposal(&env, &proposal);
@@ -1572,16 +1571,14 @@ impl VaultDAO {
             return Err(VaultError::InsufficientRole);
         }
 
-        let mut config = storage::get_config(&env)?;
-        config.dex_config = Some(dex_config);
-        storage::set_config(&env, &config);
+        storage::set_dex_config(&env, &dex_config);
         events::emit_dex_config_updated(&env, &admin);
         Ok(())
     }
 
     /// Get current DEX configuration
     pub fn get_dex_config(env: Env) -> Option<types::DexConfig> {
-        storage::get_config(&env).ok()?.dex_config
+        storage::get_dex_config(&env)
     }
 
     /// Propose a swap operation
@@ -1603,10 +1600,7 @@ impl VaultDAO {
         }
 
         // Validate DEX is enabled
-        let dex_config = config
-            .dex_config
-            .as_ref()
-            .ok_or(VaultError::DexNotEnabled)?;
+        let dex_config = storage::get_dex_config(&env).ok_or(VaultError::DexNotEnabled)?;
 
         // Validate DEX address
         let dex_addr = match &swap_op {
@@ -1645,10 +1639,11 @@ impl VaultDAO {
             expires_at: (current_ledger + PROPOSAL_EXPIRY_LEDGERS as u32) as u64,
             unlock_ledger: unlock_ledger as u64,
             insurance_amount,
-            swap_operation: Some(swap_op),
+            is_swap: true,
         };
 
         storage::set_proposal(&env, &proposal);
+        storage::set_swap_proposal(&env, proposal_id, &swap_op);
         storage::add_to_priority_queue(&env, priority as u32, proposal_id);
         events::emit_proposal_created(
             &env,
@@ -1679,27 +1674,21 @@ impl VaultDAO {
         }
 
         // Get swap operation
-        let swap_op = proposal
-            .swap_operation
-            .as_ref()
+        let swap_op = storage::get_swap_proposal(&env, proposal_id)
             .ok_or(VaultError::InvalidSwapParams)?;
-        let config = storage::get_config(&env)?;
-        let dex_config = config
-            .dex_config
-            .as_ref()
-            .ok_or(VaultError::DexNotEnabled)?;
+        let dex_config = storage::get_dex_config(&env).ok_or(VaultError::DexNotEnabled)?;
 
         // Execute based on operation type
         let result = match swap_op {
             types::SwapProposal::Swap(dex, token_in, token_out, amount_in, min_amount_out) => {
                 Self::execute_token_swap(
                     &env,
-                    dex,
-                    token_in,
-                    token_out,
-                    *amount_in,
-                    *min_amount_out,
-                    dex_config,
+                    &dex,
+                    &token_in,
+                    &token_out,
+                    amount_in,
+                    min_amount_out,
+                    &dex_config,
                 )?
             }
             types::SwapProposal::AddLiquidity(
@@ -1711,12 +1700,12 @@ impl VaultDAO {
                 min_lp_tokens,
             ) => Self::add_liquidity_to_pool(
                 &env,
-                dex,
-                token_a,
-                token_b,
-                *amount_a,
-                *amount_b,
-                *min_lp_tokens,
+                &dex,
+                &token_a,
+                &token_b,
+                amount_a,
+                amount_b,
+                min_lp_tokens,
             )?,
             types::SwapProposal::RemoveLiquidity(
                 dex,
@@ -1726,20 +1715,20 @@ impl VaultDAO {
                 min_token_b,
             ) => Self::remove_liquidity_from_pool(
                 &env,
-                dex,
-                lp_token,
-                *amount,
-                *min_token_a,
-                *min_token_b,
+                &dex,
+                &lp_token,
+                amount,
+                min_token_a,
+                min_token_b,
             )?,
             types::SwapProposal::StakeLp(farm, lp_token, amount) => {
-                Self::stake_lp_tokens(&env, farm, lp_token, *amount)?
+                Self::stake_lp_tokens(&env, &farm, &lp_token, amount)?
             }
             types::SwapProposal::UnstakeLp(farm, lp_token, amount) => {
-                Self::unstake_lp_tokens(&env, farm, lp_token, *amount)?
+                Self::unstake_lp_tokens(&env, &farm, &lp_token, amount)?
             }
             types::SwapProposal::ClaimRewards(farm) => {
-                Self::claim_farming_rewards(&env, farm, proposal_id)?
+                Self::claim_farming_rewards(&env, &farm, proposal_id)?
             }
         };
 
@@ -1837,7 +1826,7 @@ impl VaultDAO {
     fn remove_liquidity_from_pool(
         env: &Env,
         dex: &Address,
-        lp_token: &Address,
+        _lp_token: &Address,
         amount: i128,
         min_token_a: i128,
         min_token_b: i128,
@@ -1884,7 +1873,7 @@ impl VaultDAO {
     fn unstake_lp_tokens(
         env: &Env,
         farm: &Address,
-        lp_token: &Address,
+        _lp_token: &Address,
         amount: i128,
     ) -> Result<types::SwapResult, VaultError> {
         // Withdraw LP tokens from farm
@@ -1919,10 +1908,10 @@ impl VaultDAO {
 
     /// Calculate expected swap output (constant product formula)
     fn calculate_swap_output(
-        env: &Env,
-        dex: &Address,
-        token_in: &Address,
-        token_out: &Address,
+        _env: &Env,
+        _dex: &Address,
+        _token_in: &Address,
+        _token_out: &Address,
         amount_in: i128,
     ) -> Result<i128, VaultError> {
         // Get pool reserves (simplified - would query DEX contract)
@@ -1946,7 +1935,7 @@ impl VaultDAO {
     fn calculate_price_impact(
         amount_in: i128,
         amount_out: i128,
-        dex_config: &types::DexConfig,
+        _dex_config: &types::DexConfig,
     ) -> Result<u32, VaultError> {
         if amount_in == 0 {
             return Err(VaultError::InvalidAmount);
