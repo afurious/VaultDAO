@@ -248,10 +248,8 @@ const ProposalDetailModal: React.FC<ProposalDetailModalProps> = ({ isOpen, onClo
                             ))}
                         </div>
                     </div>
-                        </>
-                    ) : (
-                        <ProposalComments proposalId={proposal.id} />
-                    )}
+
+                    <ProposalComments proposalId={proposal.id} />
                 </div>
 
                 {/* 3. Footer */}
