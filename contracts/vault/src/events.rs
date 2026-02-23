@@ -95,3 +95,19 @@ pub fn emit_signer_removed(env: &Env, signer: &Address, total_signers: u32) {
         (signer.clone(), total_signers),
     );
 }
+
+/// Emit when a comment is added
+pub fn emit_comment_added(env: &Env, comment_id: u64, proposal_id: u64, author: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "comment_added"), comment_id),
+        (proposal_id, author.clone()),
+    );
+}
+
+/// Emit when a comment is edited
+pub fn emit_comment_edited(env: &Env, comment_id: u64, author: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "comment_edited"), comment_id),
+        author.clone(),
+    );
+}

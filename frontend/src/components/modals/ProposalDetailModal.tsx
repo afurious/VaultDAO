@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { X, Copy, CheckCircle2, Clock, PlayCircle, Ban, UserCheck, MessageSquare } from 'lucide-react';
+import ProposalComments from '../ProposalComments';
 import { X, Copy, CheckCircle2, Clock, PlayCircle, Ban, UserCheck } from 'lucide-react';
 import SignatureStatus, { type Signer } from '../SignatureStatus';
 import SignatureFlow, { type FlowStep } from '../SignatureFlow';
@@ -24,6 +26,7 @@ interface ProposalDetailModalProps {
 }
 
 const ProposalDetailModal: React.FC<ProposalDetailModalProps> = ({ isOpen, onClose, proposal }) => {
+    const [activeTab, setActiveTab] = useState<'details' | 'comments'>('details');
     const { getProposalSignatures, remindSigner, exportSignatures } = useVaultContract();
     const [signers, setSigners] = useState<Signer[]>([]);
     const [showQR, setShowQR] = useState(false);
@@ -45,6 +48,10 @@ const ProposalDetailModal: React.FC<ProposalDetailModalProps> = ({ isOpen, onClo
             document.body.style.overflow = 'unset';
         }
         return () => { document.body.style.overflow = 'unset'; };
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (isOpen) setActiveTab('details');
     }, [isOpen]);
 
     if (!isOpen || !proposal) return null;
@@ -92,6 +99,31 @@ const ProposalDetailModal: React.FC<ProposalDetailModalProps> = ({ isOpen, onClo
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-500 hover:text-white">
                         <X size={20} />
+                    </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex border-b border-gray-800 bg-gray-900/50">
+                    <button
+                        onClick={() => setActiveTab('details')}
+                        className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                            activeTab === 'details'
+                                ? 'text-purple-400 border-b-2 border-purple-400 bg-purple-500/5'
+                                : 'text-gray-400 hover:text-gray-300'
+                        }`}
+                    >
+                        Details
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('comments')}
+                        className={`flex-1 px-4 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                            activeTab === 'comments'
+                                ? 'text-purple-400 border-b-2 border-purple-400 bg-purple-500/5'
+                                : 'text-gray-400 hover:text-gray-300'
+                        }`}
+                    >
+                        <MessageSquare size={16} />
+                        Comments
                     </button>
                 </div>
 

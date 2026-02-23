@@ -820,4 +820,109 @@ impl VaultDAO {
             }
         }
     }
+
+    // ========================================================================
+    // Comments
+    // ========================================================================
+
+    /// Add a comment to a proposal
+    pub fn add_comment(
+        env: Env,
+        author: Address,
+        proposal_id: u64,
+        text: Symbol,
+        parent_id: u64,
+    ) -> Result<u64, VaultError> {
+        author.require_auth();
+
+        // Verify proposal exists
+        let _ = storage::get_proposal(&env, proposal_id)?;
+
+        // Validate text length (Symbol max is 32 bytes, for longer use String type)
+        // Here we'll enforce 500 char limit via the Symbol constraint
+        let text_str = text.to_string();
+        if text_str.len() > 500 {
+            return Err(VaultError::CommentTooLong);
+        }
+
+        // If parent_id is provided, verify parent comment exists
+        if parent_id > 0 {
+            let _ = storage::get_comment(&env, parent_id)?;
+        }
+
+        let comment_id = storage::increment_comment_id(&env);
+        let current_ledger = env.ledger().sequence() as u64;
+
+        let comment = Comment {
+            id: comment_id,
+            proposal_id,
+            author: author.clone(),
+            text,
+            parent_id,
+            created_at: current_ledger,
+            edited_at: 0,
+        };
+
+        storage::set_comment(&env, &comment);
+        storage::add_comment_to_proposal(&env, proposal_id, comment_id);
+        storage::extend_instance_ttl(&env);
+
+        events::emit_comment_added(&env, comment_id, proposal_id, &author);
+
+        Ok(comment_id)
+    }
+
+    /// Edit a comment
+    pub fn edit_comment(
+        env: Env,
+        author: Address,
+        comment_id: u64,
+        new_text: Symbol,
+    ) -> Result<(), VaultError> {
+        author.require_auth();
+
+        let mut comment = storage::get_comment(&env, comment_id)?;
+
+        // Only author can edit
+        if comment.author != author {
+            return Err(VaultError::NotCommentAuthor);
+        }
+
+        // Validate text length
+        let text_str = new_text.to_string();
+        if text_str.len() > 500 {
+            return Err(VaultError::CommentTooLong);
+        }
+
+        comment.text = new_text;
+        comment.edited_at = env.ledger().sequence() as u64;
+
+        storage::set_comment(&env, &comment);
+        storage::extend_instance_ttl(&env);
+
+        events::emit_comment_edited(&env, comment_id, &author);
+
+        Ok(())
+    }
+
+    /// Get all comments for a proposal
+    pub fn get_proposal_comments(env: Env, proposal_id: u64) -> Vec<Comment> {
+        let comment_ids = storage::get_proposal_comments(&env, proposal_id);
+        let mut comments = Vec::new(&env);
+
+        for i in 0..comment_ids.len() {
+            if let Some(comment_id) = comment_ids.get(i) {
+                if let Ok(comment) = storage::get_comment(&env, comment_id) {
+                    comments.push_back(comment);
+                }
+            }
+        }
+
+        comments
+    }
+
+    /// Get a single comment by ID
+    pub fn get_comment(env: Env, comment_id: u64) -> Result<Comment, VaultError> {
+        storage::get_comment(&env, comment_id)
+    }
 }

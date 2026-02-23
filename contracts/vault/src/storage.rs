@@ -309,3 +309,54 @@ pub fn check_and_update_velocity(env: &Env, addr: &Address, config: &VelocityCon
 
     true
 }
+
+// ============================================================================
+// Comments
+// ============================================================================
+
+pub fn get_next_comment_id(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::NextCommentId)
+        .unwrap_or(1)
+}
+
+pub fn increment_comment_id(env: &Env) -> u64 {
+    let id = get_next_comment_id(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::NextCommentId, &(id + 1));
+    id
+}
+
+pub fn set_comment(env: &Env, comment: &Comment) {
+    let key = DataKey::Comment(comment.id);
+    env.storage().persistent().set(&key, comment);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, INSTANCE_TTL_THRESHOLD, INSTANCE_TTL);
+}
+
+pub fn get_comment(env: &Env, id: u64) -> Result<Comment, VaultError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Comment(id))
+        .ok_or(VaultError::ProposalNotFound)
+}
+
+pub fn get_proposal_comments(env: &Env, proposal_id: u64) -> SdkVec<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::ProposalComments(proposal_id))
+        .unwrap_or_else(|| SdkVec::new(env))
+}
+
+pub fn add_comment_to_proposal(env: &Env, proposal_id: u64, comment_id: u64) {
+    let mut comments = get_proposal_comments(env, proposal_id);
+    comments.push_back(comment_id);
+    let key = DataKey::ProposalComments(proposal_id);
+    env.storage().persistent().set(&key, &comments);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, INSTANCE_TTL_THRESHOLD, INSTANCE_TTL);
+}

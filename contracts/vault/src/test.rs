@@ -176,6 +176,7 @@ fn test_timelock_violation() {
 }
 
 #[test]
+fn test_comment_functionality() {
 fn test_priority_levels() {
     let env = Env::default();
     env.mock_all_auths();
@@ -387,6 +388,42 @@ fn test_change_priority_unauthorized() {
     // Create a proposal
     let proposal_id = client.propose_transfer(
         &signer1,
+        &admin,
+        &token,
+        &100,
+        &Symbol::new(&env, "test"),
+    );
+
+    // Add a comment
+    let comment_text = Symbol::new(&env, "Looks good to me");
+    let comment_id = client.add_comment(&signer1, &proposal_id, &comment_text, &0);
+    assert_eq!(comment_id, 1);
+
+    // Get comments
+    let comments = client.get_proposal_comments(&proposal_id);
+    assert_eq!(comments.len(), 1);
+
+    let comment = comments.get(0).unwrap();
+    assert_eq!(comment.proposal_id, proposal_id);
+    assert_eq!(comment.author, signer1);
+    assert_eq!(comment.parent_id, 0);
+
+    // Add a reply
+    let reply_text = Symbol::new(&env, "Agreed!");
+    let reply_id = client.add_comment(&admin, &proposal_id, &reply_text, &comment_id);
+    assert_eq!(reply_id, 2);
+
+    // Edit comment
+    let new_text = Symbol::new(&env, "Actually, needs review");
+    client.edit_comment(&signer1, &comment_id, &new_text);
+
+    let updated_comment = client.get_comment(&comment_id);
+    assert_eq!(updated_comment.text, new_text);
+    assert!(updated_comment.edited_at > 0);
+
+    // Test non-author edit fails
+    let res = client.try_edit_comment(&admin, &comment_id, &Symbol::new(&env, "hack"));
+    assert_eq!(res.err(), Some(Ok(VaultError::NotCommentAuthor)));
         &user,
         &token,
         &100,
