@@ -18,9 +18,8 @@ pub use types::InitConfig;
 use errors::VaultError;
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
 use types::{
-    Comment, Condition, ConditionLogic, Config, InsuranceConfig, ListMode,
-    NotificationPreferences, Priority, Proposal, ProposalStatus, Reputation, Role,
-    ThresholdStrategy,
+    Comment, Condition, ConditionLogic, Config, InsuranceConfig, ListMode, NotificationPreferences,
+    Priority, Proposal, ProposalStatus, Reputation, Role, ThresholdStrategy,
 };
 
 /// The main contract structure for VaultDAO.
