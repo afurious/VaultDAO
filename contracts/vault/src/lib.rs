@@ -410,6 +410,14 @@ impl VaultDAO {
         storage::add_daily_spent(&env, today, total_amount);
         storage::add_weekly_spent(&env, week, total_amount);
 
+        // Gas limit: derive from GasConfig (0 = unlimited)
+        let gas_cfg = storage::get_gas_config(&env);
+        let proposal_gas_limit = if gas_cfg.enabled {
+            gas_cfg.default_gas_limit
+        } else {
+            0
+        };
+
         // Create proposals
         let current_ledger = env.ledger().sequence() as u64;
         let mut proposal_ids = Vec::new(&env);
@@ -441,6 +449,10 @@ impl VaultDAO {
                 expires_at: current_ledger + PROPOSAL_EXPIRY_LEDGERS,
                 unlock_ledger: 0,
                 insurance_amount: insurance_per_proposal,
+                gas_limit: proposal_gas_limit,
+                gas_used: 0,
+                snapshot_ledger: current_ledger,
+                snapshot_signers: config.signers.clone(),
                 is_swap: false,
             };
 

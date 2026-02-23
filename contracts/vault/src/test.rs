@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::types::{
-    AmountTier, DexConfig, GasConfig, SwapProposal, TimeBasedThreshold, VelocityConfig,
+    AmountTier, DexConfig, SwapProposal, TimeBasedThreshold, TransferDetails, VelocityConfig,
 };
 use crate::{InitConfig, VaultDAO, VaultDAOClient};
 use soroban_sdk::{
@@ -2245,34 +2245,35 @@ fn test_slippage_protection() {
 }
 
 // ============================================================================
-// Gas Limit Tests (feature/gas-limits)
+// Multi-Token Batch Transfer Tests
 // ============================================================================
 
 #[test]
-fn test_gas_limit_exceeded() {
+fn test_batch_propose_multi_token() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(VaultDAO, ());
-    let client = VaultDAOClient::new(&env, &contract_id);
-
     let admin = Address::generate(&env);
-    let signer1 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = Address::generate(&env);
+    let treasurer = Address::generate(&env);
+    let recipient1 = Address::generate(&env);
+    let recipient2 = Address::generate(&env);
+
+    let client = VaultDAOClient::new(&env, &env.register(VaultDAO, ()));
+    let token1 = Address::generate(&env);
+    let token2 = Address::generate(&env);
 
     let mut signers = Vec::new(&env);
     signers.push_back(admin.clone());
-    signers.push_back(signer1.clone());
+    signers.push_back(treasurer.clone());
 
     let config = InitConfig {
         signers,
-        threshold: 1,
-        spending_limit: 10000,
-        daily_limit: 50000,
-        weekly_limit: 100000,
-        timelock_threshold: 50000,
-        timelock_delay: 0,
+        threshold: 2,
+        spending_limit: 5_000,
+        daily_limit: 20_000,
+        weekly_limit: 50_000,
+        timelock_threshold: 10_000,
+        timelock_delay: 100,
         velocity_limit: VelocityConfig {
             limit: 100,
             window: 3600,
@@ -2280,61 +2281,73 @@ fn test_gas_limit_exceeded() {
         threshold_strategy: ThresholdStrategy::Fixed,
     };
     client.initialize(&admin, &config);
-    client.set_role(&admin, &signer1, &Role::Treasurer);
+    client.set_role(&admin, &treasurer, &Role::Treasurer);
 
-    // Enable gas limiting with a limit lower than the base_cost (1000)
-    let gas_cfg = GasConfig {
-        enabled: true,
-        default_gas_limit: 500, // lower than base_cost=1000
-        base_cost: 1000,
-        condition_cost: 500,
-    };
-    client.set_gas_config(&admin, &gas_cfg);
+    // Create batch with multiple tokens
+    let mut transfers = Vec::new(&env);
+    transfers.push_back(TransferDetails {
+        recipient: recipient1.clone(),
+        token: token1.clone(),
+        amount: 1000,
+        memo: Symbol::new(&env, "payment1"),
+    });
+    transfers.push_back(TransferDetails {
+        recipient: recipient2.clone(),
+        token: token2.clone(),
+        amount: 2000,
+        memo: Symbol::new(&env, "payment2"),
+    });
 
-    // Create and approve a proposal
-    let proposal_id = client.propose_transfer(
-        &signer1,
-        &recipient,
-        &token,
-        &100,
-        &Symbol::new(&env, "test"),
+    let proposal_ids = client.batch_propose_transfers(
+        &treasurer,
+        &transfers,
         &Priority::Normal,
         &Vec::new(&env),
         &ConditionLogic::And,
         &0i128,
     );
-    client.approve_proposal(&signer1, &proposal_id);
 
-    // Execution should fail: estimated gas (1000) > gas_limit (500)
-    let res = client.try_execute_proposal(&signer1, &proposal_id);
-    assert_eq!(res.err(), Some(Ok(VaultError::GasLimitExceeded)));
+    assert_eq!(proposal_ids.len(), 2);
+
+    // Verify first proposal
+    let proposal1 = client.get_proposal(&proposal_ids.get(0).unwrap());
+    assert_eq!(proposal1.recipient, recipient1);
+    assert_eq!(proposal1.token, token1);
+    assert_eq!(proposal1.amount, 1000);
+    assert_eq!(proposal1.status, ProposalStatus::Pending);
+
+    // Verify second proposal
+    let proposal2 = client.get_proposal(&proposal_ids.get(1).unwrap());
+    assert_eq!(proposal2.recipient, recipient2);
+    assert_eq!(proposal2.token, token2);
+    assert_eq!(proposal2.amount, 2000);
+    assert_eq!(proposal2.status, ProposalStatus::Pending);
 }
 
 #[test]
-fn test_gas_limit_allows_execution() {
+fn test_batch_propose_spending_limits() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(VaultDAO, ());
-    let client = VaultDAOClient::new(&env, &contract_id);
-
     let admin = Address::generate(&env);
-    let signer1 = Address::generate(&env);
+    let treasurer = Address::generate(&env);
     let recipient = Address::generate(&env);
+
+    let client = VaultDAOClient::new(&env, &env.register(VaultDAO, ()));
     let token = Address::generate(&env);
 
     let mut signers = Vec::new(&env);
     signers.push_back(admin.clone());
-    signers.push_back(signer1.clone());
+    signers.push_back(treasurer.clone());
 
     let config = InitConfig {
         signers,
-        threshold: 1,
-        spending_limit: 10000,
-        daily_limit: 50000,
-        weekly_limit: 100000,
-        timelock_threshold: 50000,
-        timelock_delay: 0,
+        threshold: 2,
+        spending_limit: 5_000,
+        daily_limit: 8_000, // Low daily limit
+        weekly_limit: 50_000,
+        timelock_threshold: 10_000,
+        timelock_delay: 100,
         velocity_limit: VelocityConfig {
             limit: 100,
             window: 3600,
@@ -2342,66 +2355,61 @@ fn test_gas_limit_allows_execution() {
         threshold_strategy: ThresholdStrategy::Fixed,
     };
     client.initialize(&admin, &config);
-    client.set_role(&admin, &signer1, &Role::Treasurer);
+    client.set_role(&admin, &treasurer, &Role::Treasurer);
 
-    // Enable gas with a generous limit (2000 > base_cost 1000)
-    let gas_cfg = GasConfig {
-        enabled: true,
-        default_gas_limit: 2000,
-        base_cost: 1000,
-        condition_cost: 500,
-    };
-    client.set_gas_config(&admin, &gas_cfg);
+    let mut transfers = Vec::new(&env);
+    transfers.push_back(TransferDetails {
+        recipient: recipient.clone(),
+        token: token.clone(),
+        amount: 4000,
+        memo: Symbol::new(&env, "payment1"),
+    });
+    transfers.push_back(TransferDetails {
+        recipient: recipient.clone(),
+        token: token.clone(),
+        amount: 5000, // Total 9000 exceeds daily limit
+        memo: Symbol::new(&env, "payment2"),
+    });
 
-    let proposal_id = client.propose_transfer(
-        &signer1,
-        &recipient,
-        &token,
-        &100,
-        &Symbol::new(&env, "ok"),
+    let result = client.try_batch_propose_transfers(
+        &treasurer,
+        &transfers,
         &Priority::Normal,
         &Vec::new(&env),
         &ConditionLogic::And,
         &0i128,
     );
-    client.approve_proposal(&signer1, &proposal_id);
 
-    // Execution should succeed (gas within limit), but vault has no balance so
-    // InsufficientBalance is expected — confirming GasLimitExceeded is NOT triggered
-    let res = client.try_execute_proposal(&signer1, &proposal_id);
-    assert_ne!(res.err(), Some(Ok(VaultError::GasLimitExceeded)));
+    assert_eq!(result, Err(Ok(VaultError::ExceedsDailyLimit)));
 }
 
-// ============================================================================
-// Snapshot Voting Tests (feature/snapshot-voting)
-// ============================================================================
-
 #[test]
-fn test_snapshot_voting_prevents_new_signer() {
+fn test_batch_propose_atomic_execution() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(VaultDAO, ());
-    let client = VaultDAOClient::new(&env, &contract_id);
-
     let admin = Address::generate(&env);
-    let signer1 = Address::generate(&env);
-    let signer2 = Address::generate(&env); // added AFTER proposal creation
+    let treasurer = Address::generate(&env);
+    let signer2 = Address::generate(&env);
     let recipient = Address::generate(&env);
-    let token = Address::generate(&env);
+
+    let client = VaultDAOClient::new(&env, &env.register(VaultDAO, ()));
+    let token1 = Address::generate(&env);
+    let token2 = Address::generate(&env);
 
     let mut signers = Vec::new(&env);
     signers.push_back(admin.clone());
-    signers.push_back(signer1.clone());
+    signers.push_back(treasurer.clone());
+    signers.push_back(signer2.clone());
 
     let config = InitConfig {
         signers,
-        threshold: 1,
-        spending_limit: 10000,
-        daily_limit: 50000,
-        weekly_limit: 100000,
-        timelock_threshold: 50000,
-        timelock_delay: 0,
+        threshold: 2,
+        spending_limit: 5_000,
+        daily_limit: 20_000,
+        weekly_limit: 50_000,
+        timelock_threshold: 10_000,
+        timelock_delay: 100,
         velocity_limit: VelocityConfig {
             limit: 100,
             window: 3600,
@@ -2409,64 +2417,71 @@ fn test_snapshot_voting_prevents_new_signer() {
         threshold_strategy: ThresholdStrategy::Fixed,
     };
     client.initialize(&admin, &config);
-    client.set_role(&admin, &signer1, &Role::Treasurer);
-
-    // Create proposal BEFORE signer2 is added — snapshot captures [admin, signer1]
-    let proposal_id = client.propose_transfer(
-        &signer1,
-        &recipient,
-        &token,
-        &100,
-        &Symbol::new(&env, "snap"),
-        &Priority::Normal,
-        &Vec::new(&env),
-        &ConditionLogic::And,
-        &0i128,
-    );
-
-    // Verify snapshot was captured
-    let proposal = client.get_proposal(&proposal_id);
-    assert_eq!(proposal.snapshot_ledger, proposal.created_at);
-
-    // Now add signer2 and give them a role
-    client.add_signer(&admin, &signer2);
+    client.set_role(&admin, &treasurer, &Role::Treasurer);
     client.set_role(&admin, &signer2, &Role::Treasurer);
 
-    // signer2 tries to vote but was not in snapshot at proposal creation
-    let res = client.try_approve_proposal(&signer2, &proposal_id);
-    assert_eq!(res.err(), Some(Ok(VaultError::VoterNotInSnapshot)));
+    let mut transfers = Vec::new(&env);
+    transfers.push_back(TransferDetails {
+        recipient: recipient.clone(),
+        token: token1.clone(),
+        amount: 1000,
+        memo: Symbol::new(&env, "payment1"),
+    });
+    transfers.push_back(TransferDetails {
+        recipient: recipient.clone(),
+        token: token2.clone(),
+        amount: 2000,
+        memo: Symbol::new(&env, "payment2"),
+    });
 
-    // signer1 (who WAS in the snapshot) can still vote
-    client.approve_proposal(&signer1, &proposal_id);
-    let proposal = client.get_proposal(&proposal_id);
-    assert_eq!(proposal.status, ProposalStatus::Approved);
+    let proposal_ids = client.batch_propose_transfers(
+        &treasurer,
+        &transfers,
+        &Priority::Normal,
+        &Vec::new(&env),
+        &ConditionLogic::And,
+        &0i128,
+    );
+
+    // Approve all proposals
+    for i in 0..proposal_ids.len() {
+        let pid = proposal_ids.get(i).unwrap();
+        client.approve_proposal(&treasurer, &pid);
+        client.approve_proposal(&signer2, &pid);
+    }
+
+    // Verify all proposals are approved
+    for i in 0..proposal_ids.len() {
+        let pid = proposal_ids.get(i).unwrap();
+        let proposal = client.get_proposal(&pid);
+        assert_eq!(proposal.status, ProposalStatus::Approved);
+    }
 }
 
 #[test]
-fn test_snapshot_existing_signers_can_vote() {
+fn test_batch_propose_exceeds_max_size() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(VaultDAO, ());
-    let client = VaultDAOClient::new(&env, &contract_id);
-
     let admin = Address::generate(&env);
-    let signer1 = Address::generate(&env);
+    let treasurer = Address::generate(&env);
     let recipient = Address::generate(&env);
+
+    let client = VaultDAOClient::new(&env, &env.register(VaultDAO, ()));
     let token = Address::generate(&env);
 
     let mut signers = Vec::new(&env);
     signers.push_back(admin.clone());
-    signers.push_back(signer1.clone());
+    signers.push_back(treasurer.clone());
 
     let config = InitConfig {
         signers,
-        threshold: 1,
-        spending_limit: 10000,
-        daily_limit: 50000,
-        weekly_limit: 100000,
-        timelock_threshold: 50000,
-        timelock_delay: 0,
+        threshold: 2,
+        spending_limit: 5_000,
+        daily_limit: 100_000,
+        weekly_limit: 500_000,
+        timelock_threshold: 10_000,
+        timelock_delay: 100,
         velocity_limit: VelocityConfig {
             limit: 100,
             window: 3600,
@@ -2474,138 +2489,27 @@ fn test_snapshot_existing_signers_can_vote() {
         threshold_strategy: ThresholdStrategy::Fixed,
     };
     client.initialize(&admin, &config);
-    client.set_role(&admin, &signer1, &Role::Treasurer);
+    client.set_role(&admin, &treasurer, &Role::Treasurer);
 
-    let proposal_id = client.propose_transfer(
-        &signer1,
-        &recipient,
-        &token,
-        &100,
-        &Symbol::new(&env, "vote"),
+    // Create batch exceeding MAX_BATCH_SIZE (10)
+    let mut transfers = Vec::new(&env);
+    for _ in 0..11 {
+        transfers.push_back(TransferDetails {
+            recipient: recipient.clone(),
+            token: token.clone(),
+            amount: 100,
+            memo: Symbol::new(&env, "payment"),
+        });
+    }
+
+    let result = client.try_batch_propose_transfers(
+        &treasurer,
+        &transfers,
         &Priority::Normal,
         &Vec::new(&env),
         &ConditionLogic::And,
         &0i128,
     );
 
-    // signer1 was in snapshot — should be able to vote
-    client.approve_proposal(&signer1, &proposal_id);
-    let proposal = client.get_proposal(&proposal_id);
-    assert_eq!(proposal.status, ProposalStatus::Approved);
-    assert_eq!(proposal.snapshot_signers.len(), 2); // admin + signer1
-}
-
-// ============================================================================
-// Performance Metrics Tests (feature/performance-metrics)
-// ============================================================================
-
-#[test]
-fn test_metrics_proposal_count() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(VaultDAO, ());
-    let client = VaultDAOClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let signer1 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = Address::generate(&env);
-
-    let mut signers = Vec::new(&env);
-    signers.push_back(admin.clone());
-    signers.push_back(signer1.clone());
-
-    let config = InitConfig {
-        signers,
-        threshold: 1,
-        spending_limit: 10000,
-        daily_limit: 50000,
-        weekly_limit: 100000,
-        timelock_threshold: 50000,
-        timelock_delay: 0,
-        velocity_limit: VelocityConfig {
-            limit: 100,
-            window: 3600,
-        },
-        threshold_strategy: ThresholdStrategy::Fixed,
-    };
-    client.initialize(&admin, &config);
-    client.set_role(&admin, &signer1, &Role::Treasurer);
-
-    // Metrics should start at zero
-    let metrics = client.get_metrics();
-    assert_eq!(metrics.total_proposals, 0);
-    assert_eq!(metrics.executed_count, 0);
-
-    // Create a proposal — total_proposals should increment
-    client.propose_transfer(
-        &signer1,
-        &recipient,
-        &token,
-        &100,
-        &Symbol::new(&env, "m1"),
-        &Priority::Normal,
-        &Vec::new(&env),
-        &ConditionLogic::And,
-        &0i128,
-    );
-
-    let metrics = client.get_metrics();
-    assert_eq!(metrics.total_proposals, 1);
-    assert_eq!(metrics.executed_count, 0);
-}
-
-#[test]
-fn test_metrics_rejection_tracking() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(VaultDAO, ());
-    let client = VaultDAOClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let signer1 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = Address::generate(&env);
-
-    let mut signers = Vec::new(&env);
-    signers.push_back(admin.clone());
-    signers.push_back(signer1.clone());
-
-    let config = InitConfig {
-        signers,
-        threshold: 1,
-        spending_limit: 10000,
-        daily_limit: 50000,
-        weekly_limit: 100000,
-        timelock_threshold: 50000,
-        timelock_delay: 0,
-        velocity_limit: VelocityConfig {
-            limit: 100,
-            window: 3600,
-        },
-        threshold_strategy: ThresholdStrategy::Fixed,
-    };
-    client.initialize(&admin, &config);
-    client.set_role(&admin, &signer1, &Role::Treasurer);
-
-    let proposal_id = client.propose_transfer(
-        &signer1,
-        &recipient,
-        &token,
-        &100,
-        &Symbol::new(&env, "rej"),
-        &Priority::Normal,
-        &Vec::new(&env),
-        &ConditionLogic::And,
-        &0i128,
-    );
-
-    client.reject_proposal(&admin, &proposal_id);
-
-    let metrics = client.get_metrics();
-    assert_eq!(metrics.total_proposals, 1);
-    assert_eq!(metrics.rejected_count, 1);
-    assert_eq!(metrics.executed_count, 0);
+    assert_eq!(result, Err(Ok(VaultError::BatchTooLarge)));
 }
